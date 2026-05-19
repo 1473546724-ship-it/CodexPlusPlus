@@ -203,6 +203,28 @@ fn manager_ui_exposes_pure_api_relay_mode_button() {
 }
 
 #[test]
+fn injection_script_ungrays_plugin_entry_after_backend_settings_load() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("selectors.pluginNavButton"));
+    assert!(script.contains("unblockButtonElement(pluginButton)"));
+    assert!(script.contains("clearDisabledTreeState(button)"));
+    assert!(script.contains("removeAttribute(\"data-disabled\")"));
+    assert!(script.contains("props.ariaDisabled = false"));
+    assert!(script.contains("\"opacity-30\""));
+    assert!(script.contains("\"opacity-60\""));
+    assert!(script.contains("\"grayscale\""));
+    assert!(script.contains("selectors.pluginNavButton,"));
+}
+
+#[test]
+fn injection_script_retries_plugin_patch_when_settings_request_fails() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("codexPlusBackendSettingsLoaded = true;\n      refreshCodexPlusBackendToggles();"));
+}
+
+#[test]
 fn cdp_target_deserializes_websocket_field() {
     let target: CdpTarget = serde_json::from_value(json!({
         "id": "page-1",

@@ -732,6 +732,7 @@
       refreshCodexPlusBackendToggles();
       return true;
     } catch (_) {
+      codexPlusBackendSettingsLoaded = true;
       refreshCodexPlusBackendToggles();
       return false;
     }
@@ -1372,8 +1373,80 @@
     return true;
   }
 
+  const disabledVisualClassNames = [
+    "disabled",
+    "opacity-30",
+    "opacity-40",
+    "opacity-50",
+    "opacity-60",
+    "grayscale",
+    "cursor-not-allowed",
+    "pointer-events-none",
+    "text-token-text-tertiary",
+    "text-token-text-quaternary",
+    "text-token-text-disabled",
+  ];
+
+  const disabledVisualSelector = [
+    "[disabled]",
+    '[aria-disabled="true"]',
+    "[data-disabled]",
+    "[inert]",
+    ...disabledVisualClassNames.map((className) => `.${className}`),
+  ].join(", ");
+
   function pluginPatchDisabledInRelayMode() {
     return !codexPlusBackendSettingsLoaded || codexPlusBackendSettings.launchMode === "relay";
+  }
+
+  function reactPropObjectsFrom(element) {
+    const props = [];
+    const reactPropsKey = Object.keys(element).find((key) => key.startsWith("__reactProps"));
+    if (reactPropsKey && element[reactPropsKey]) props.push(element[reactPropsKey]);
+    const fiber = reactFiberFrom(element);
+    [fiber?.memoizedProps, fiber?.pendingProps].forEach((value) => {
+      if (value && typeof value === "object" && !props.includes(value)) props.push(value);
+    });
+    return props;
+  }
+
+  function clearReactDisabledProps(element) {
+    reactPropObjectsFrom(element).forEach((props) => {
+      try {
+        props.disabled = false;
+        props["aria-disabled"] = false;
+        props.ariaDisabled = false;
+        props["data-disabled"] = false;
+        props.inert = false;
+      } catch (_) {
+        // React internals may expose readonly props in some builds.
+      }
+    });
+  }
+
+  function clearDisabledElementState(element) {
+    if (!element || element.nodeType !== 1) return;
+    try {
+      if ("disabled" in element) element.disabled = false;
+      element.removeAttribute("disabled");
+      element.removeAttribute("aria-disabled");
+      element.removeAttribute("data-disabled");
+      element.removeAttribute("inert");
+      element.classList?.remove(...disabledVisualClassNames);
+      if (element.style) {
+        element.style.pointerEvents = "auto";
+        element.style.opacity = "1";
+        element.style.filter = "none";
+      }
+      clearReactDisabledProps(element);
+    } catch (_) {
+      // Keep scanning even if a page-owned node rejects mutation.
+    }
+  }
+
+  function clearDisabledTreeState(element) {
+    clearDisabledElementState(element);
+    element.querySelectorAll?.(disabledVisualSelector).forEach(clearDisabledElementState);
   }
 
   function pluginEntryButton() {
@@ -1408,6 +1481,8 @@
     spoofChatGPTAuthMethod(pluginButton);
     pluginButton.disabled = false;
     pluginButton.removeAttribute("disabled");
+    pluginButton.removeAttribute("aria-disabled");
+    unblockButtonElement(pluginButton);
     pluginButton.style.display = "";
     pluginButton.querySelectorAll("*").forEach((node) => {
       node.style.display = "";
@@ -1488,6 +1563,10 @@
   }
 
   function unblockButtonElement(button) {
+    button.disabled = false;
+    button.removeAttribute("disabled");
+    button.removeAttribute("aria-disabled");
+    clearDisabledTreeState(button);
     installButtonUnlockNodes(button).forEach(clearDisabledState);
     installForcedInstallGuard(button);
   }
@@ -5129,7 +5208,8 @@
   }
 
   function scanDeferred() {
-    if (pluginPatchDisabledInRelayMode()) {
+    const settings = codexPlusSettings();
+    if (!settings.pluginEntryUnlock && !settings.forcePluginInstall) {
       clearPluginPatchArtifacts();
       refreshForcePluginInstallUnlockLoop();
     } else {
@@ -5181,6 +5261,7 @@
       '[class*="UserMessage"]',
       selectors.appHeader,
       selectors.archiveNav,
+      selectors.pluginNavButton,
       ...(pluginPatchDisabledInRelayMode() ? [] : [selectors.disabledInstallButton]),
     ].join(", ");
   }
